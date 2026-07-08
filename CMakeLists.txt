@@ -23,7 +23,8 @@ juce_add_plugin(Quill
 target_sources(Quill
     PRIVATE
         Source/PluginProcessor.cpp
-        Source/PluginEditor.cpp)
+        Source/PluginEditor.cpp
+        Source/CompilerLocator.cpp)
 
 target_compile_definitions(Quill
     PUBLIC
