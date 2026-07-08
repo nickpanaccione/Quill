@@ -24,7 +24,12 @@ target_sources(Quill
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
-        Source/CompilerLocator.cpp)
+        Source/CompilerLocator.cpp
+        Source/CompileService.cpp)
+
+target_include_directories(Quill
+    PRIVATE
+        shared)
 
 target_compile_definitions(Quill
     PUBLIC
