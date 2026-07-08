@@ -1,6 +1,13 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "CompilerLocator.h"
+#include "CompileService.h"
+#include "DspLibrary.h"
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <vector>
 
 class QuillAudioProcessor : public juce::AudioProcessor {
 public:
@@ -33,6 +40,20 @@ public:
   void getStateInformation (juce::MemoryBlock& destData) override;
   void setStateInformation (const void* data, int sizeInBytes) override;
 
+  void compileAndLoad(const juce::File& sourceFile,
+                      std::function<void(bool, juce::String)> onResult);
+
 private:
+  CompilerLocator::Result compilerResult;
+  std::unique_ptr<CompileService> compileService;
+
+  std::unique_ptr<DspLibrary> activeDsp;
+  std::vector<std::unique_ptr<DspLibrary>> retireQueue;
+  std::atomic<DspLibrary::ProcessFn> processFn { nullptr };
+
+  double currentSampleRate { 0.0 };
+  int currentBlockSize { 0 };
+  int compileCount { 0 };
+
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QuillAudioProcessor)
 };

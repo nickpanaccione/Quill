@@ -25,7 +25,8 @@ target_sources(Quill
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
         Source/CompilerLocator.cpp
-        Source/CompileService.cpp)
+        Source/CompileService.cpp
+        Source/DspLibrary.cpp)
 
 target_include_directories(Quill
     PRIVATE

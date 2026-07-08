@@ -38,9 +38,11 @@ void CompileService::run() {
 
     auto outputLib = req->outputDir.getChildFile("dsp.dylib");
 
+    // clang++ find libc++ 
     juce::String cmd;
     cmd << "'" << compiler.getFullPathName() << "'"
         << " -dynamiclib -std=c++20 -O1"
+        << " -isysroot $(xcrun --show-sdk-path)"
         << " -I'" << sharedIncludeDir.getFullPathName() << "'"
         << " -o '" << outputLib.getFullPathName() << "'"
         << " '" << req->sourceFile.getFullPathName() << "'"
