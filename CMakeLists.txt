@@ -7,6 +7,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(JUCE)
 
+file(GLOB QuillAssetFiles CONFIGURE_DEPENDS assets/*.svg)
+
+juce_add_binary_data(QuillAssets SOURCES ${QuillAssetFiles})
+
 juce_add_plugin(Quill
     COMPANY_NAME "Quill"
     IS_SYNTH FALSE
@@ -43,6 +47,7 @@ target_link_libraries(Quill
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
+        QuillAssets
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

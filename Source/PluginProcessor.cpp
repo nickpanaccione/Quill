@@ -8,7 +8,7 @@ QuillAudioProcessor::QuillAudioProcessor()
   compilerResult = CompilerLocator::locate();
 
   if (compilerResult.found) {
-    // navigate to shared using the compile-time source path
+    // navigate to shared using compile-time source path
     auto sharedDir = juce::File(__FILE__).getParentDirectory().getSiblingFile("shared");
     compileService = std::make_unique<CompileService>(compilerResult.path, sharedDir);
   }
@@ -66,7 +66,7 @@ void QuillAudioProcessor::compileAndLoad(const juce::File& sourceFile,
     return;
   }
 
-  // each compile gets own subdirectory, dlopen never sees stale cached handle
+  // each compile gets subdirectory, dlopen never sees stale cached handle
   auto outputDir = juce::File::getSpecialLocation(juce::File::tempDirectory)
                      .getChildFile("quill_dsp")
                      .getChildFile(juce::String(compileCount++));
@@ -107,6 +107,16 @@ void QuillAudioProcessor::compileAndLoad(const juce::File& sourceFile,
 
       if (onResult) { onResult(true, r.compilerOutput); }
     });
+}
+
+void QuillAudioProcessor::stopDsp() {
+  processFn.store(nullptr, std::memory_order_release);
+
+  if (activeDsp != nullptr) {
+    retireQueue.push_back(std::move(activeDsp));
+    // drain retire queue after enough blocks have passed
+    juce::Timer::callAfterDelay(200, [this] { retireQueue.clear(); });
+  }
 }
 
 juce::AudioProcessorEditor* QuillAudioProcessor::createEditor() {
