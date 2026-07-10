@@ -43,6 +43,9 @@ public:
   void compileAndLoad(const juce::File& sourceFile,
                       std::function<void(bool, juce::String)> onResult);
 
+  // silences the audio thread and retires the active dsp library
+  void stopDsp();
+
 private:
   CompilerLocator::Result compilerResult;
   std::unique_ptr<CompileService> compileService;
