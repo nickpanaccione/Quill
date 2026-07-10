@@ -1,4 +1,5 @@
 # Quill
+[![Build](https://github.com/nickpanaccione/Quill/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/nickpanaccione/Quill/actions/workflows/build.yml)
 
 C++ DSP prototyping.
 
