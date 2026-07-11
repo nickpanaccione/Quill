@@ -17,6 +17,7 @@ public:
 
   PrepareFn prepareFn = nullptr;
   ProcessFn processFn = nullptr;
+  juce::File libraryFile;
 
 private:
   DspLibrary() = default;
