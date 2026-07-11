@@ -21,6 +21,7 @@ std::unique_ptr<DspLibrary> DspLibrary::load(const juce::File& path, juce::Strin
     return nullptr;
   }
 
+  lib->libraryFile = path;
   return lib;
 }
 

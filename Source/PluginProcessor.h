@@ -72,12 +72,18 @@ private:
   // silences the audio thread and retires the active dsp library
   void stopDsp();
 
+  // dlcloses retired libraries after a safety delay, delete build dirs
+  void scheduleRetireDrain();
+
   CompilerLocator::Result compilerResult;
   std::unique_ptr<CompileService> compileService;
 
   std::unique_ptr<DspLibrary> activeDsp;
   std::vector<std::unique_ptr<DspLibrary>> retireQueue;
   std::atomic<DspLibrary::ProcessFn> processFn { nullptr };
+
+  // unique per instance, two plugins in one process never share build paths
+  juce::File buildRoot;
 
   juce::File sourceFile;
   DspState dspState { DspState::Empty };

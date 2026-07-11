@@ -11,6 +11,10 @@ QuillAudioProcessor::QuillAudioProcessor()
                            .withOutput ("Output", juce::AudioChannelSet::stereo(), true)) {
   compilerResult = CompilerLocator::locate();
 
+  buildRoot = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("quill_dsp")
+                .getChildFile(juce::Uuid().toString());
+
   if (compilerResult.found) {
     // navigate to shared using compile-time source path
     auto sharedDir = juce::File(__FILE__).getParentDirectory().getSiblingFile("shared");
@@ -23,6 +27,9 @@ QuillAudioProcessor::~QuillAudioProcessor() {
   compileService.reset();
   retireQueue.clear();
   activeDsp.reset();
+
+  // sweep instance's builds
+  buildRoot.deleteRecursively();
 }
 
 void QuillAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock) {
@@ -145,9 +152,7 @@ void QuillAudioProcessor::startCompile() {
                                                                    : DspState::Compiling);
 
   // each compile gets subdirectory, dlopen never sees stale cached handle
-  auto outputDir = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                     .getChildFile("quill_dsp")
-                     .getChildFile(juce::String(compileCount++));
+  auto outputDir = buildRoot.getChildFile(juce::String(compileCount++));
   outputDir.createDirectory();
 
   // a superseded request may never call back, only latest generation counts
@@ -192,10 +197,8 @@ void QuillAudioProcessor::startCompile() {
 
       if (oldLib != nullptr) {
         retireQueue.push_back(std::move(oldLib));
+        scheduleRetireDrain();
       }
-
-      // drain retire queue after enough blocks have passed
-      juce::Timer::callAfterDelay(200, [this] { retireQueue.clear(); });
 
       handleCompileResult(true, r.compilerOutput);
     });
@@ -222,9 +225,25 @@ void QuillAudioProcessor::stopDsp() {
 
   if (activeDsp != nullptr) {
     retireQueue.push_back(std::move(activeDsp));
-    // drain retire queue after enough blocks have passed
-    juce::Timer::callAfterDelay(200, [this] { retireQueue.clear(); });
+    scheduleRetireDrain();
   }
+}
+
+void QuillAudioProcessor::scheduleRetireDrain() {
+  // wait enough blocks for audio thread to be off the old function
+  juce::Timer::callAfterDelay(200, [this] {
+    juce::Array<juce::File> retiredDirs;
+    for (auto& lib : retireQueue) {
+      retiredDirs.add(lib->libraryFile.getParentDirectory());
+    }
+
+    // dlclose before deleting
+    retireQueue.clear();
+
+    for (auto& dir : retiredDirs) {
+      dir.deleteRecursively();
+    }
+  });
 }
 
 juce::AudioProcessorEditor* QuillAudioProcessor::createEditor() {
