@@ -1,6 +1,10 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace {
+  constexpr int watchIntervalMs = 400;
+}
+
 QuillAudioProcessor::QuillAudioProcessor()
     : AudioProcessor (BusesProperties()
                            .withInput ("Input", juce::AudioChannelSet::stereo(), true)
@@ -57,14 +61,88 @@ void QuillAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
   }
 }
 
-void QuillAudioProcessor::compileAndLoad(const juce::File& sourceFile,
-                                         std::function<void(bool, juce::String)> onResult) {
-  if (compileService == nullptr) {
-    if (onResult) {
-      onResult(false, "no compiler: " + compilerResult.error);
-    }
+void QuillAudioProcessor::setSourceFile(const juce::File& file) {
+  sourceFile = file;
+  lastPolledModTime = juce::Time();
+  lastCompiledModTime = juce::Time();
+  startTimer(watchIntervalMs);
+
+  if (armed) {
+    startCompile();
+  } else {
+    setDspState(DspState::Idle);
+  }
+}
+
+juce::File QuillAudioProcessor::getSourceFile() const {
+  return sourceFile;
+}
+
+QuillAudioProcessor::DspState QuillAudioProcessor::getDspState() const {
+  return dspState;
+}
+
+bool QuillAudioProcessor::isArmed() const {
+  return armed;
+}
+
+void QuillAudioProcessor::arm() {
+  if (armed || !sourceFile.existsAsFile()) {
     return;
   }
+
+  armed = true;
+  startCompile();
+}
+
+void QuillAudioProcessor::disarm() {
+  if (!armed) {
+    return;
+  }
+
+  armed = false;
+  stopDsp();
+  setDspState(sourceFile == juce::File() ? DspState::Empty : DspState::Idle);
+}
+
+void QuillAudioProcessor::timerCallback() {
+  if (!armed || !sourceFile.existsAsFile()) {
+    return;
+  }
+
+  // wait until modtime is stable for full tick so half-written save never compiles
+  auto modTime = sourceFile.getLastModificationTime();
+  if (modTime != lastPolledModTime) {
+    lastPolledModTime = modTime;
+    return;
+  }
+
+  if (modTime != lastCompiledModTime && !compileInFlight) {
+    startCompile();
+  }
+}
+
+void QuillAudioProcessor::setDspState(DspState newState) {
+  if (dspState != newState) {
+    dspState = newState;
+    sendChangeMessage();
+  }
+}
+
+void QuillAudioProcessor::startCompile() {
+  if (!sourceFile.existsAsFile()) {
+    return;
+  }
+
+  if (compileService == nullptr) {
+    handleCompileResult(false, "no compiler: " + compilerResult.error);
+    return;
+  }
+
+  lastCompiledModTime = sourceFile.getLastModificationTime();
+  compileInFlight = true;
+  setDspState(processFn.load(std::memory_order_relaxed) != nullptr ? DspState::Recompiling
+                                                                   : DspState::Compiling);
 
   // each compile gets subdirectory, dlopen never sees stale cached handle
   auto outputDir = juce::File::getSpecialLocation(juce::File::tempDirectory)
@@ -72,10 +150,24 @@ void QuillAudioProcessor::compileAndLoad(const juce::File& sourceFile,
                      .getChildFile(juce::String(compileCount++));
   outputDir.createDirectory();
 
+  // a superseded request may never call back, only latest generation counts
+  const int generation = ++compileGeneration;
+
   compileService->compile(sourceFile, outputDir,
-    [this, onResult](CompileService::Result r) {
+    [this, generation](CompileService::Result r) {
+      if (generation != compileGeneration) {
+        return;
+      }
+
+      compileInFlight = false;
+
+      // user hit stop while this was building, discard the result
+      if (!armed) {
+        return;
+      }
+
       if (!r.success) {
-        if (onResult) { onResult(false, r.compilerOutput); }
+        handleCompileResult(false, r.compilerOutput);
         return;
       }
 
@@ -83,7 +175,7 @@ void QuillAudioProcessor::compileAndLoad(const juce::File& sourceFile,
       auto newLib = DspLibrary::load(r.outputLib, loadError);
 
       if (newLib == nullptr) {
-        if (onResult) { onResult(false, "load failed: " + loadError); }
+        handleCompileResult(false, "load failed: " + loadError);
         return;
       }
 
@@ -105,8 +197,24 @@ void QuillAudioProcessor::compileAndLoad(const juce::File& sourceFile,
       // drain retire queue after enough blocks have passed
       juce::Timer::callAfterDelay(200, [this] { retireQueue.clear(); });
 
-      if (onResult) { onResult(true, r.compilerOutput); }
+      handleCompileResult(true, r.compilerOutput);
     });
+}
+
+void QuillAudioProcessor::handleCompileResult(bool success, const juce::String& output) {
+  // DBG compiles out in release builds
+  juce::ignoreUnused(output);
+
+  if (success) {
+    setDspState(DspState::Running);
+    return;
+  }
+
+  DBG("compile failed: " << output);
+
+  // failed rebuild keeps the old dsp audible
+  setDspState(processFn.load(std::memory_order_relaxed) != nullptr ? DspState::RunningError
+                                                                   : DspState::Error);
 }
 
 void QuillAudioProcessor::stopDsp() {

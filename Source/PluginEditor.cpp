@@ -3,6 +3,7 @@
 
 namespace {
   const juce::Colour backgroundColour { 0xff3c3836 };
+  const juce::Colour errorBadgeColour { 0xfffb4934 };
 
   constexpr int windowWidth  = 390;
   constexpr int windowHeight = 195;
@@ -37,6 +38,13 @@ void IconButton::setIconState (int newState) {
   repaint();
 }
 
+void IconButton::setErrorBadge (bool shouldShow) {
+  if (errorBadge != shouldShow) {
+    errorBadge = shouldShow;
+    repaint();
+  }
+}
+
 void IconButton::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool) {
   if (! juce::isPositiveAndBelow (iconState, (int) iconStates.size())) {
     return;
@@ -48,6 +56,15 @@ void IconButton::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighligh
 
   if (icon != nullptr) {
     icon->drawWithin (g, getLocalBounds().toFloat(), juce::RectanglePlacement::centred, 1.0f);
+  }
+
+  // last rebuild failed but the old dsp is still audible
+  if (errorBadge) {
+    auto bounds = getLocalBounds().toFloat();
+    auto diameter = bounds.getWidth() * 0.1f;
+    g.setColour (errorBadgeColour);
+    g.fillEllipse (bounds.getRight() - diameter * 1.8f, bounds.getY() + diameter * 0.8f,
+                   diameter, diameter);
   }
 }
 
@@ -112,12 +129,16 @@ void FolderButton::filesDropped (const juce::StringArray& files, int, int) {
 }
 
 void FolderButton::selectFile (const juce::File& file) {
-  isLoaded = true;
-  setIconState (Loaded);
+  setLoaded (true);
 
   if (onFileSelected) {
     onFileSelected (file);
   }
+}
+
+void FolderButton::setLoaded (bool shouldBeLoaded) {
+  isLoaded = shouldBeLoaded;
+  setIconState (isLoaded ? Loaded : Default);
 }
 
 // LoadingSpinner
@@ -167,26 +188,31 @@ QuillAudioProcessorEditor::QuillAudioProcessorEditor (QuillAudioProcessor& p)
                           BinaryData::icon_run_stop_hover_svg,  BinaryData::icon_run_stop_hover_svgSize);
   runButton.addIconState (BinaryData::icon_run_error_svg,       BinaryData::icon_run_error_svgSize,
                           BinaryData::icon_run_error_hover_svg, BinaryData::icon_run_error_hover_svgSize);
-  runButton.setIconState (runEmpty);
-  runButton.setEnabled (false);
-  runButton.onClick = [this] { runClicked(); };
+  runButton.onClick = [this] {
+    if (audioProcessor.isArmed()) {
+      audioProcessor.disarm();
+    } else {
+      audioProcessor.arm();
+    }
+  };
   addAndMakeVisible (runButton);
 
   folderButton.onFileSelected = [this] (juce::File file) {
-    currentSourceFile = file;
-    runButton.setEnabled (true);
-
-    // fresh file clears error
-    if (!dspRunning) {
-      runButton.setIconState (runStart);
-    }
+    audioProcessor.setSourceFile (file);
   };
   addAndMakeVisible (folderButton);
 
   addChildComponent (loadingSpinner);
+
+  // sync with processor, keeps running while the editor is closed
+  audioProcessor.addChangeListener (this);
+  folderButton.setLoaded (audioProcessor.getSourceFile().existsAsFile());
+  updateFromState();
 }
 
-QuillAudioProcessorEditor::~QuillAudioProcessorEditor() = default;
+QuillAudioProcessorEditor::~QuillAudioProcessorEditor() {
+  audioProcessor.removeChangeListener (this);
+}
 
 void QuillAudioProcessorEditor::paint (juce::Graphics& g) {
   g.fillAll (backgroundColour);
@@ -200,38 +226,31 @@ void QuillAudioProcessorEditor::resized() {
   loadingSpinner.setBounds (runButton.getBounds());
 }
 
-void QuillAudioProcessorEditor::runClicked() {
-  if (dspRunning) {
-    audioProcessor.stopDsp();
-    dspRunning = false;
-    runButton.setIconState (runStart);
-    return;
-  }
-
-  startCompile();
+void QuillAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*) {
+  updateFromState();
 }
 
-void QuillAudioProcessorEditor::startCompile() {
-  if (!currentSourceFile.existsAsFile()) {
-    return;
+void QuillAudioProcessorEditor::updateFromState() {
+  using State = QuillAudioProcessor::DspState;
+  const auto state = audioProcessor.getDspState();
+
+  const bool compiling = (state == State::Compiling || state == State::Recompiling);
+  if (compiling && !loadingSpinner.isVisible()) {
+    loadingSpinner.start();
+  } else if (!compiling) {
+    loadingSpinner.stop();
   }
 
-  runButton.setEnabled (false);
-  folderButton.setEnabled (false);
-  loadingSpinner.start();
+  runButton.setEnabled (state != State::Empty);
+  runButton.setErrorBadge (state == State::RunningError);
 
-  audioProcessor.compileAndLoad (currentSourceFile, [this] (bool success, juce::String message) {
-    loadingSpinner.stop();
-    folderButton.setEnabled (true);
-    runButton.setEnabled (true);
-
-    // DBG compiles out in release builds
-    juce::ignoreUnused (message);
-    if (!success) {
-      DBG ("compile failed: " << message);
-    }
-
-    dspRunning = success;
-    runButton.setIconState (dspRunning ? runStop : runError);
-  });
+  switch (state) {
+    case State::Empty:        runButton.setIconState (runEmpty); break;
+    case State::Idle:
+    case State::Compiling:    runButton.setIconState (runStart); break;
+    case State::Running:
+    case State::Recompiling:
+    case State::RunningError: runButton.setIconState (runStop);  break;
+    case State::Error:        runButton.setIconState (runError); break;
+  }
 }
