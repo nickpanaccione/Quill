@@ -9,7 +9,9 @@
 #include <memory>
 #include <vector>
 
-class QuillAudioProcessor : public juce::AudioProcessor {
+class QuillAudioProcessor : public juce::AudioProcessor,
+                            public juce::ChangeBroadcaster,
+                            private juce::Timer {
 public:
   QuillAudioProcessor();
   ~QuillAudioProcessor() override;
@@ -40,19 +42,53 @@ public:
   void getStateInformation (juce::MemoryBlock& destData) override;
   void setStateInformation (const void* data, int sizeInBytes) override;
 
-  void compileAndLoad(const juce::File& sourceFile,
-                      std::function<void(bool, juce::String)> onResult);
+  enum class DspState {
+    Empty,        // no source selected
+    Idle,         // file loaded, not armed
+    Compiling,    // armed, nothing running yet
+    Running,      // armed, dsp active
+    Recompiling,  // armed, dsp active, rebuilding 
+    RunningError, // armed, dsp active, last rebuild failed
+    Error         // armed, nothing running, last compile failed
+  };
+
+  void setSourceFile(const juce::File& file);
+  juce::File getSourceFile() const;
+
+  DspState getDspState() const;
+  bool isArmed() const;
+
+  // arming compiles the source file and keeps it synced to saves on disk
+  void arm();
+  void disarm();
+
+private:
+  void timerCallback() override;
+
+  void setDspState(DspState newState);
+  void startCompile();
+  void handleCompileResult(bool success, const juce::String& output);
 
   // silences the audio thread and retires the active dsp library
   void stopDsp();
 
-private:
   CompilerLocator::Result compilerResult;
   std::unique_ptr<CompileService> compileService;
 
   std::unique_ptr<DspLibrary> activeDsp;
   std::vector<std::unique_ptr<DspLibrary>> retireQueue;
   std::atomic<DspLibrary::ProcessFn> processFn { nullptr };
+
+  juce::File sourceFile;
+  DspState dspState { DspState::Empty };
+  bool armed = false;
+
+  // superseded compile callbacks are ignored by generation
+  bool compileInFlight = false;
+  int compileGeneration { 0 };
+
+  juce::Time lastPolledModTime;
+  juce::Time lastCompiledModTime;
 
   double currentSampleRate { 0.0 };
   int currentBlockSize { 0 };

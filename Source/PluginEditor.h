@@ -13,6 +13,7 @@ public:
   void addIconState (const char* iconData, int iconSize,
                      const char* hoverData = nullptr, int hoverSize = 0);
   void setIconState (int newState);
+  void setErrorBadge (bool shouldShow);
 
 private:
   void paintButton (juce::Graphics&, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
@@ -24,6 +25,7 @@ private:
 
   std::vector<Icons> iconStates;
   int iconState = 0;
+  bool errorBadge = false;
 };
 
 // source picker (click to browse or drag .cpp file
@@ -32,6 +34,7 @@ public:
   FolderButton();
 
   std::function<void (juce::File)> onFileSelected;
+  void setLoaded (bool shouldBeLoaded);
 
 private:
   enum IconState { Default = 0, Drag, Loaded };
@@ -63,7 +66,8 @@ private:
   int frame = 0;
 };
 
-class QuillAudioProcessorEditor : public juce::AudioProcessorEditor {
+class QuillAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                  private juce::ChangeListener {
 public:
   explicit QuillAudioProcessorEditor (QuillAudioProcessor&);
   ~QuillAudioProcessorEditor() override;
@@ -72,17 +76,14 @@ public:
   void resized() override;
 
 private:
-  void runClicked();
-  void startCompile();
+  void changeListenerCallback (juce::ChangeBroadcaster*) override;
+  void updateFromState();
 
   QuillAudioProcessor& audioProcessor;
 
   IconButton runButton { "run" };
   FolderButton folderButton;
   LoadingSpinner loadingSpinner;
-
-  juce::File currentSourceFile;
-  bool dspRunning = false;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QuillAudioProcessorEditor)
 };
