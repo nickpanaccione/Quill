@@ -76,6 +76,8 @@ FolderButton::FolderButton() : IconButton ("folder") {
   addIconState (BinaryData::icon_folder_drag_svg,         BinaryData::icon_folder_drag_svgSize);
   addIconState (BinaryData::icon_folder_loaded_svg,       BinaryData::icon_folder_loaded_svgSize,
                 BinaryData::icon_folder_loaded_hover_svg, BinaryData::icon_folder_loaded_hover_svgSize);
+  addIconState (BinaryData::icon_folder_notfound_svg,     BinaryData::icon_folder_notfound_svgSize,
+                BinaryData::icon_folder_hover_svg,        BinaryData::icon_folder_hover_svgSize);
 }
 
 void FolderButton::clicked() {
@@ -113,7 +115,7 @@ void FolderButton::fileDragEnter (const juce::StringArray&, int, int) {
 }
 
 void FolderButton::fileDragExit (const juce::StringArray&) {
-  setIconState (isLoaded ? Loaded : Default);
+  setIconState (baseIcon());
 }
 
 void FolderButton::filesDropped (const juce::StringArray& files, int, int) {
@@ -125,20 +127,29 @@ void FolderButton::filesDropped (const juce::StringArray& files, int, int) {
     }
   }
 
-  setIconState (isLoaded ? Loaded : Default);
+  setIconState (baseIcon());
 }
 
 void FolderButton::selectFile (const juce::File& file) {
-  setLoaded (true);
+  setFileStatus (FileStatus::loaded);
 
   if (onFileSelected) {
     onFileSelected (file);
   }
 }
 
-void FolderButton::setLoaded (bool shouldBeLoaded) {
-  isLoaded = shouldBeLoaded;
-  setIconState (isLoaded ? Loaded : Default);
+void FolderButton::setFileStatus (FileStatus newStatus) {
+  fileStatus = newStatus;
+  setIconState (baseIcon());
+}
+
+int FolderButton::baseIcon() const {
+  switch (fileStatus) {
+    case FileStatus::loaded:  return Loaded;
+    case FileStatus::missing: return NotFound;
+    case FileStatus::none:    break;
+  }
+  return Default;
 }
 
 // LoadingSpinner
@@ -206,7 +217,6 @@ QuillAudioProcessorEditor::QuillAudioProcessorEditor (QuillAudioProcessor& p)
 
   // sync with processor, keeps running while the editor is closed
   audioProcessor.addChangeListener (this);
-  folderButton.setLoaded (audioProcessor.getSourceFile().existsAsFile());
   updateFromState();
 }
 
@@ -241,16 +251,26 @@ void QuillAudioProcessorEditor::updateFromState() {
     loadingSpinner.stop();
   }
 
-  runButton.setEnabled (state != State::Empty);
+  runButton.setEnabled (state != State::Empty && state != State::Missing);
   runButton.setErrorBadge (state == State::RunningError);
 
   switch (state) {
-    case State::Empty:        runButton.setIconState (runEmpty); break;
+    case State::Empty:
+    case State::Missing:      runButton.setIconState (runEmpty); break;
     case State::Idle:
     case State::Compiling:    runButton.setIconState (runStart); break;
     case State::Running:
     case State::Recompiling:
     case State::RunningError: runButton.setIconState (runStop);  break;
     case State::Error:        runButton.setIconState (runError); break;
+  }
+
+  using FileStatus = FolderButton::FileStatus;
+  if (state == State::Missing) {
+    folderButton.setFileStatus (FileStatus::missing);
+  } else if (audioProcessor.getSourceFile() != juce::File()) {
+    folderButton.setFileStatus (FileStatus::loaded);
+  } else {
+    folderButton.setFileStatus (FileStatus::none);
   }
 }

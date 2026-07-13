@@ -74,6 +74,11 @@ void QuillAudioProcessor::setSourceFile(const juce::File& file) {
   lastCompiledModTime = juce::Time();
   startTimer(watchIntervalMs);
 
+  if (!sourceFile.existsAsFile()) {
+    setDspState(DspState::Missing);
+    return;
+  }
+
   if (armed) {
     startCompile();
   } else {
@@ -99,6 +104,7 @@ void QuillAudioProcessor::arm() {
   }
 
   armed = true;
+  armWhenFound = false;
   startCompile();
 }
 
@@ -108,12 +114,40 @@ void QuillAudioProcessor::disarm() {
   }
 
   armed = false;
+  armWhenFound = false;
   stopDsp();
-  setDspState(sourceFile == juce::File() ? DspState::Empty : DspState::Idle);
+
+  if (sourceFile == juce::File()) {
+    setDspState(DspState::Empty);
+  } else {
+    setDspState(sourceFile.existsAsFile() ? DspState::Idle : DspState::Missing);
+  }
 }
 
 void QuillAudioProcessor::timerCallback() {
-  if (!armed || !sourceFile.existsAsFile()) {
+  if (sourceFile == juce::File()) {
+    return;
+  }
+
+  if (!sourceFile.existsAsFile()) {
+    // file vanished
+    if (dspState == DspState::Idle) {
+      setDspState(DspState::Missing);
+    }
+    return;
+  }
+
+  // file back
+  if (dspState == DspState::Missing) {
+    setDspState(DspState::Idle);
+
+    if (armWhenFound) {
+      arm();
+      return;
+    }
+  }
+
+  if (!armed) {
     return;
   }
 
@@ -292,10 +326,34 @@ const juce::String QuillAudioProcessor::getProgramName (int) {
 void QuillAudioProcessor::changeProgramName (int, const juce::String&) {
 }
 
-void QuillAudioProcessor::getStateInformation (juce::MemoryBlock&) {
+void QuillAudioProcessor::getStateInformation (juce::MemoryBlock& destData) {
+  juce::XmlElement xml("QuillState");
+  xml.setAttribute("sourceFile", sourceFile.getFullPathName());
+  xml.setAttribute("armed", armed);
+  copyXmlToBinary(xml, destData);
 }
 
-void QuillAudioProcessor::setStateInformation (const void*, int) {
+void QuillAudioProcessor::setStateInformation (const void* data, int sizeInBytes) {
+  auto xml = getXmlFromBinary(data, sizeInBytes);
+  if (xml == nullptr || !xml->hasTagName("QuillState")) {
+    return;
+  }
+
+  auto path = xml->getStringAttribute("sourceFile");
+  if (path.isEmpty()) {
+    return;
+  }
+
+  setSourceFile(juce::File(path));
+
+  // resume where session left off, missing files re-arm if they return
+  if (xml->getBoolAttribute("armed")) {
+    if (sourceFile.existsAsFile()) {
+      arm();
+    } else {
+      armWhenFound = true;
+    }
+  }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {

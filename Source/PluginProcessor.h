@@ -44,6 +44,7 @@ public:
 
   enum class DspState {
     Empty,        // no source selected
+    Missing,      // source remembered but not found on disk
     Idle,         // file loaded, not armed
     Compiling,    // armed, nothing running yet
     Running,      // armed, dsp active
@@ -88,6 +89,9 @@ private:
   juce::File sourceFile;
   DspState dspState { DspState::Empty };
   bool armed = false;
+
+  // restored session armed but file missing, arm once it returns
+  bool armWhenFound = false;
 
   // superseded compile callbacks are ignored by generation
   bool compileInFlight = false;
