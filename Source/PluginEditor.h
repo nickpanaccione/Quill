@@ -33,11 +33,13 @@ class FolderButton : public IconButton, public juce::FileDragAndDropTarget {
 public:
   FolderButton();
 
+  enum class FileStatus { none, loaded, missing };
+
   std::function<void (juce::File)> onFileSelected;
-  void setLoaded (bool shouldBeLoaded);
+  void setFileStatus (FileStatus newStatus);
 
 private:
-  enum IconState { Default = 0, Drag, Loaded };
+  enum IconState { Default = 0, Drag, Loaded, NotFound };
 
   void clicked() override;
   bool isInterestedInFileDrag (const juce::StringArray& files) override;
@@ -45,8 +47,9 @@ private:
   void fileDragExit (const juce::StringArray&) override;
   void filesDropped (const juce::StringArray& files, int, int) override;
   void selectFile (const juce::File& file);
+  int baseIcon() const;
 
-  bool isLoaded = false;
+  FileStatus fileStatus = FileStatus::none;
   std::unique_ptr<juce::FileChooser> fileChooser;
 };
 
