@@ -11,13 +11,16 @@ and hot-swap C++ DSP code while it's loaded in a live signal chain. Edit a
 function into the audio thread without restarting the plugin or leaving
 your DAW session. Built with JUCE.
 
+> **Note:** Quill currently only supports macOS. Other platforms are not
+> tested or supported at this time.
+
 ## Getting Started
 
 ### Dependencies
 
+* macOS (required — see note above)
 * CMake 3.22+
-* A C++20 compiler on macOS, the Xcode Command Line Tools (`clang++` via
-  `xcrun`)
+* A C++20 compiler: the Xcode Command Line Tools (`clang++` via `xcrun`)
 * JUCE (included as a git submodule)
 
 ### Installing
